@@ -16,6 +16,15 @@ export async function POST(request) {
       return Response.json({ error: 'feedbackId et content requis' }, { status: 400 })
     }
 
+    // ✅ Vérifier si déjà résumé → évite double envoi à RepuAgent
+    const { data: existingFeedback } = await supabase
+      .from('feedbacks')
+      .select('summary, user_id, rating')
+      .eq('id', feedbackId)
+      .single()
+
+    const dejaEnvoye = !!existingFeedback?.summary
+
     // 1. Analyser avec Claude
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -39,48 +48,46 @@ Feedback : "${content}"`
       .update({ summary, sentiment })
       .eq('id', feedbackId)
 
-    // 3. Récupérer le feedback complet pour avoir user_id
-    const uid = user_id || (await supabase
-      .from('feedbacks')
-      .select('user_id, rating')
-      .eq('id', feedbackId)
-      .single()
-    ).data?.user_id
+    // 3. ✅ Envoyer à RepuAgent UNIQUEMENT si premier envoi
+    if (!dejaEnvoye) {
+      const uid           = user_id || existingFeedback?.user_id
+      const feedbackRating = rating || existingFeedback?.rating || 3
 
-    // 4. ✅ Envoyer à RepuAgent
-    if (uid && process.env.REPUAGENT_API_KEY) {
-      try {
-        // Trouver le repuagent_id lié à ce user
-        const { data: userLink } = await supabase
-          .from('user_repuagent')
-          .select('repuagent_id')
-          .eq('user_id', uid)
-          .single()
+      if (uid && process.env.REPUAGENT_API_KEY) {
+        try {
+          const { data: userLink } = await supabase
+            .from('user_repuagent')
+            .select('repuagent_id')
+            .eq('user_id', uid)
+            .single()
 
-        if (userLink?.repuagent_id) {
-          const res = await fetch('https://repuagent.onrender.com/api/feedback', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-API-Key': process.env.REPUAGENT_API_KEY
-            },
-            body: JSON.stringify({
-              client_id:       userLink.repuagent_id,
-              texte_brut:      content,    // ✅ texte original du client
-              texte_reformule: summary,    // ✅ résumé IA
-              sentiment:       sentiment,
-              score:           rating || 3,
-              auteur:          'Client FeedbackAI'
+          if (userLink?.repuagent_id) {
+            const res = await fetch('https://repuagent.onrender.com/api/feedback', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': process.env.REPUAGENT_API_KEY
+              },
+              body: JSON.stringify({
+                client_id:       userLink.repuagent_id,
+                texte_brut:      content,
+                texte_reformule: summary,
+                sentiment:       sentiment,
+                score:           feedbackRating,
+                auteur:          'Client FeedbackAI'
+              })
             })
-          })
-          const data = await res.json()
-          console.log('✅ Avis envoyé à RepuAgent :', data)
-        } else {
-          console.log('⚠️ Aucun repuagent_id trouvé pour user_id:', uid)
+            const data = await res.json()
+            console.log('✅ Avis envoyé à RepuAgent :', data)
+          } else {
+            console.log('⚠️ Aucun repuagent_id trouvé pour user_id:', uid)
+          }
+        } catch (e) {
+          console.error('⚠️ Erreur RepuAgent (non bloquant):', e)
         }
-      } catch (e) {
-        console.error('⚠️ Erreur RepuAgent (non bloquant):', e)
       }
+    } else {
+      console.log('⏭️ Feedback déjà envoyé à RepuAgent — skip')
     }
 
     return Response.json({ summary, sentiment })

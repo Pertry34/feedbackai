@@ -7,7 +7,7 @@ const supabase = createClient(
 
 export async function POST(request) {
   try {
-    const { content, source, user_id, rating } = await request.json()
+    const { content, source, user_id, rating, auteur } = await request.json()
 
     if (!content || !user_id) {
       return Response.json({ error: 'Champs manquants' }, { status: 400 })
@@ -20,7 +20,8 @@ export async function POST(request) {
         content,
         source,
         user_id,
-        rating: rating ?? null
+        rating: rating ?? null,
+        auteur: auteur || 'Client anonyme'   // ✅ Sauvegarder le nom
       }])
       .select()
 

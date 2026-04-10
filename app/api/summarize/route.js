@@ -19,7 +19,7 @@ export async function POST(request) {
     // ✅ Vérifier si déjà résumé → évite double envoi à RepuAgent
     const { data: existingFeedback } = await supabase
       .from('feedbacks')
-      .select('summary, user_id, rating')
+      .select('summary, user_id, rating, auteur')
       .eq('id', feedbackId)
       .single()
 
@@ -74,7 +74,7 @@ Feedback : "${content}"`
                 texte_reformule: summary,
                 sentiment:       sentiment,
                 score:           feedbackRating,
-                auteur:          'Client FeedbackAI'
+                auteur:          existingFeedback?.auteur || 'Client FeedbackAI'
               })
             })
             const data = await res.json()

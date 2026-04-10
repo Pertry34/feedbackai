@@ -5,6 +5,7 @@ export default function Widget() {
   const [content, setContent] = useState('')
   const [rating, setRating] = useState(0)
   const [hovered, setHovered] = useState(0)
+  const [nom, setNom] = useState('')
   const [sent, setSent] = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -19,9 +20,10 @@ export default function Widget() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content,
-        source: 'widget',
+        source:  'widget',
         user_id: USER_ID,
-        rating
+        rating,
+        auteur:  nom.trim() || 'Client anonyme',  // ✅ Nom transmis
       })
     })
 
@@ -38,7 +40,7 @@ export default function Widget() {
             <p className="text-white font-semibold">Merci pour ton feedback !</p>
             <p className="text-gray-400 text-sm mt-1">On en prend bonne note.</p>
             <button
-              onClick={() => { setSent(false); setContent(''); setRating(0) }}
+              onClick={() => { setSent(false); setContent(''); setRating(0); setNom('') }}
               className="mt-4 text-blue-400 text-sm hover:underline"
             >
               Envoyer un autre
@@ -48,6 +50,15 @@ export default function Widget() {
           <>
             <h2 className="text-white font-semibold mb-1">Votre avis compte 💬</h2>
             <p className="text-gray-400 text-sm mb-4">Dites-nous ce que vous pensez</p>
+
+            {/* Champ nom */}
+            <input
+              type="text"
+              value={nom}
+              onChange={e => setNom(e.target.value)}
+              placeholder="Votre prénom (optionnel)"
+              className="w-full bg-gray-800 text-white rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+            />
 
             {/* Étoiles */}
             <div className="flex gap-2 mb-4">

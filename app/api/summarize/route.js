@@ -10,8 +10,13 @@ const supabase = createClient(
 
 export async function POST(request) {
   try {
-    const { feedbackId, content } = await request.json()
+    const { feedbackId, content, rating, user_id } = await request.json()
 
+    if (!feedbackId || !content) {
+      return Response.json({ error: 'feedbackId et content requis' }, { status: 400 })
+    }
+
+    // 1. Analyser avec Claude
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 200,
@@ -24,34 +29,36 @@ Feedback : "${content}"`
       }]
     })
 
-    const raw = message.content[0].text
+    const raw = message.content[0].text.trim()
     const parsed = JSON.parse(raw)
     const { summary, sentiment } = parsed
 
-    // Mettre à jour Supabase FeedbackAI
+    // 2. Mettre à jour Supabase FeedbackAI
     await supabase
       .from('feedbacks')
       .update({ summary, sentiment })
       .eq('id', feedbackId)
 
-    // ✅ Récupérer le feedback complet (user_id + rating)
-    const { data: feedback } = await supabase
+    // 3. Récupérer le feedback complet pour avoir user_id
+    const uid = user_id || (await supabase
       .from('feedbacks')
-      .select('*')
+      .select('user_id, rating')
       .eq('id', feedbackId)
       .single()
+    ).data?.user_id
 
-    // ✅ Envoyer à RepuAgent
-    if (feedback?.user_id) {
+    // 4. ✅ Envoyer à RepuAgent
+    if (uid && process.env.REPUAGENT_API_KEY) {
       try {
+        // Trouver le repuagent_id lié à ce user
         const { data: userLink } = await supabase
           .from('user_repuagent')
           .select('repuagent_id')
-          .eq('user_id', feedback.user_id)
+          .eq('user_id', uid)
           .single()
 
         if (userLink?.repuagent_id) {
-          await fetch('https://repuagent.onrender.com/api/feedback', {
+          const res = await fetch('https://repuagent.onrender.com/api/feedback', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -59,14 +66,17 @@ Feedback : "${content}"`
             },
             body: JSON.stringify({
               client_id:       userLink.repuagent_id,
-              texte_brut:      content,
-              texte_reformule: summary,
+              texte_brut:      content,    // ✅ texte original du client
+              texte_reformule: summary,    // ✅ résumé IA
               sentiment:       sentiment,
-              score:           feedback.rating || 3,
-              auteur:          feedback.auteur || 'Client FeedbackAI'
+              score:           rating || 3,
+              auteur:          'Client FeedbackAI'
             })
           })
-          console.log('✅ Avis envoyé à RepuAgent')
+          const data = await res.json()
+          console.log('✅ Avis envoyé à RepuAgent :', data)
+        } else {
+          console.log('⚠️ Aucun repuagent_id trouvé pour user_id:', uid)
         }
       } catch (e) {
         console.error('⚠️ Erreur RepuAgent (non bloquant):', e)
@@ -76,7 +86,7 @@ Feedback : "${content}"`
     return Response.json({ summary, sentiment })
 
   } catch (error) {
-    console.error('Erreur API:', error)
+    console.error('Erreur API summarize:', error)
     return Response.json({ error: error.message }, { status: 500 })
   }
 }
